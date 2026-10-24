@@ -3,6 +3,14 @@
 Streamlit app that generates new 28×28 handwritten digits with a trained DCGAN Generator (TensorFlow/Keras, MNIST).
 Based on the reference implementation: `rohanmistry231/Deep-Learning-Projects`, Project 09 (follows the TensorFlow DCGAN tutorial).
 
+## 🚀 Live Demo
+
+**Try DigitForge AI online:** [Launch the Live App](https://digitforge-ai-app.streamlit.app/)
+
+Generate handwritten digit images using a Deep Convolutional Generative Adversarial Network (DCGAN), explore generated samples, and experiment with latent-space interpolation.
+
+
+
 ## Architecture
 
 
