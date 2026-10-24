@@ -1,5 +1,6 @@
-from itertools import count
 import json, math, os
+import numpy as np
+import pandas as pd
 import streamlit as st
 import generate as G
 from model import (
@@ -198,11 +199,12 @@ if model is None:
             "If TensorFlow versions differ, re-export from Colab with `generator.save('generator.keras')`.")
     st.stop()
 
-tab_hero, tab_studio, tab_lab, tab_model, tab_train, tab_about = st.tabs(
+tab_hero, tab_studio, tab_lab, tab_latent, tab_model, tab_train, tab_about = st.tabs(
     [
         "Home",
         "Generation studio",
         "Real vs Generated Lab",
+        "Latent Interpolation",
         "Model",
         "Training insights",
         "About",
@@ -219,9 +221,23 @@ with tab_studio:
     c1, c2 = st.columns([1, 3])
     with c1:
         n = st.select_slider("Number of images", options=[4, 9, 16, 25], value=16)
-        if st.button("Generate Digits", use_container_width=True) or "imgs" not in st.session_state:
-            st.session_state.imgs = G.to_uint8(G.generate(model, n))
-        st.caption("Each click samples new latent vectors z ~ N(0, 1).")
+        seed_mode = st.radio(
+            "Seed mode",
+            ["Random each time", "Fixed seed"],
+            help="Use a fixed seed to reproduce the same set of generated digits.",
+        )
+        seed_value = None
+        if seed_mode == "Fixed seed":
+            seed_value = int(st.number_input("Random seed", min_value=0, max_value=2147483647, value=7, step=1))
+        generate_clicked = st.button("Generate Digits", use_container_width=True)
+        if generate_clicked or "imgs" not in st.session_state:
+            st.session_state.imgs = G.to_uint8(G.generate(model, n, seed=seed_value))
+            st.session_state.imgs_count = n
+            st.session_state.imgs_seed = seed_value
+        st.caption(
+            "Fixed seed reproduces the same images for the same model and settings. "
+            "Random mode samples fresh latent vectors."
+        )
     imgs = st.session_state.imgs
     cols_n = int(math.sqrt(len(imgs))) if int(math.sqrt(len(imgs)))**2 == len(imgs) else 4
     grid = G.grid_image(imgs, cols=cols_n, scale=8)
@@ -242,6 +258,7 @@ with tab_lab:
         "Generate handwritten digits and inspect the trained "
         "Discriminator's real-like scores."
     )
+    st.caption("A score is the Discriminator's output after sigmoid; it is not a calibrated probability of authenticity.")
 
     try:
         discriminator = get_discriminator()
@@ -250,38 +267,68 @@ with tab_lab:
         st.code(str(e))
     else:
         st.markdown("### Number of digits")
-st.caption("Choose how many handwritten digits to generate.")
-count = st.select_slider(
-    "Number of digits",
-    options=[4, 9, 16],
-    value=9,
-    key="lab_count",
-    label_visibility="collapsed")
-if st.button("Generate and evaluate", key="evaluate_digits"):
-            generated = G.generate(model, count)
-
-            # Discriminator expects image pixels in [-1, 1].
-            scores = tf.sigmoid(
-                discriminator(generated, training=False)
-            ).numpy().reshape(-1)
-
+        st.caption("Choose how many handwritten digits to generate.")
+        lab_count = st.select_slider(
+            "Number of digits",
+            options=[4, 9, 16],
+            value=9,
+            key="lab_count",
+            label_visibility="collapsed",
+        )
+        if st.button("Generate and evaluate", key="evaluate_digits"):
+            generated = G.generate(model, lab_count)
+            scores = tf.sigmoid(discriminator(generated, training=False)).numpy().reshape(-1)
             images_u8 = G.to_uint8(generated)
-            columns = st.columns(3)
+            average_score = float(np.mean(scores))
+            median_score = float(np.median(scores))
+            leans_real = int(np.sum(scores >= 0.5))
+            leans_generated = int(len(scores) - leans_real)
 
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("Images evaluated", len(scores))
+            metric_cols[1].metric("Average real-like score", f"{average_score:.1%}")
+            metric_cols[2].metric("Median score", f"{median_score:.1%}")
+            metric_cols[3].metric("Leans generated", leans_generated)
+
+            score_bins = np.linspace(0.0, 1.0, 11)
+            histogram, edges = np.histogram(scores, bins=score_bins)
+            distribution = pd.DataFrame({
+                "Score range": [f"{edges[i]:.1f}–{edges[i + 1]:.1f}" for i in range(len(histogram))],
+                "Image count": histogram,
+            })
+            st.markdown("#### Score distribution")
+            st.bar_chart(distribution, x="Score range", y="Image count")
+            st.caption(f"At the 0.5 threshold: {leans_real} score at or above 0.5; {leans_generated} score below 0.5.")
+
+            st.markdown("#### Individual generated digits")
+            columns = st.columns(4)
             for i, (image, score) in enumerate(zip(images_u8, scores)):
-                with columns[i % 3]:
+                with columns[i % 4]:
                     st.image(image, width=140)
                     st.metric("Real-like score", f"{score:.1%}")
-
-                    if score >= 0.5:
-                        st.caption("Discriminator leans real")
-                    else:
-                        st.caption("Discriminator leans generated")
+                    st.caption("Leans real" if score >= 0.5 else "Leans generated")
 
             st.caption(
-                "These are sigmoid-transformed Discriminator scores, "
-                "not calibrated probabilities of authenticity."
+                "These are sigmoid-transformed Discriminator scores, not calibrated probabilities. "
+                "They describe how this trained model scores its generated samples, not whether an image is genuinely human-made."
             )
+
+with tab_latent:
+    st.subheader("Latent-space Interpolation")
+    st.write("Explore a smooth transition between two random noise vectors. Each step is generated by the same trained Generator.")
+    controls = st.columns(3)
+    with controls[0]:
+        seed_start = int(st.number_input("Starting seed", min_value=0, max_value=2147483647, value=7, step=1, key="interp_start"))
+    with controls[1]:
+        seed_end = int(st.number_input("Ending seed", min_value=0, max_value=2147483647, value=42, step=1, key="interp_end"))
+    with controls[2]:
+        interp_steps = st.select_slider("Transition steps", options=[5, 7, 9, 13, 17], value=9)
+    if seed_start == seed_end:
+        st.info("Choose different start and end seeds to see a transition between two latent vectors.")
+    elif st.button("Generate interpolation", key="generate_interpolation"):
+        sequence = G.to_uint8(G.generate_interpolation(model, steps=interp_steps, seed_start=seed_start, seed_end=seed_end))
+        st.image(G.grid_image(sequence, cols=min(9, len(sequence)), scale=7), caption="Left to right: start vector → end vector.", width=900)
+        st.caption("The intermediate images come from linear interpolation between latent vectors. They are generated samples, not real training images.")
 
 with tab_model:
     meta = read_json("artifacts/training_history.json") or {}
@@ -292,7 +339,7 @@ with tab_model:
                   find_model_path(), meta.get("epochs", "not recorded"),
                   meta.get("batch_size", "not recorded")]})
     st.write("**Generator**: noise → Dense(7·7·256) → 3 transposed-conv blocks → `tanh` image. "
-             "**Discriminator**: 2 strided conv blocks with dropout → 1 raw score (used only in training).")
+             "**Discriminator**: 2 strided conv blocks with dropout → 1 raw logit, used during training and for the optional evaluation lab.")
     with st.expander("Generator summary"):
         lines = []
         model.summary(print_fn=lines.append)

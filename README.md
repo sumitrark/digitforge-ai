@@ -18,6 +18,14 @@ flowchart LR
 ```
 
 
+## Features
+- Generate 4, 9, 16, or 25 synthetic handwritten digits at once.
+- Reproduce a generation with a fixed random seed, or sample fresh latent vectors.
+- Download the generated grid or individual digits as PNG files.
+- Evaluate generated samples with the trained Discriminator's real-like scores and score distribution. Scores are not calibrated authenticity probabilities.
+- Explore latent-space interpolation between two noise vectors.
+- View model architecture details and optional saved training insights.
+
 ## Run locally
 ```bash
 pip install -r requirements.txt

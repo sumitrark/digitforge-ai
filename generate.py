@@ -13,7 +13,31 @@ def make_latent(n, seed=None):
 
 def generate(model, n, seed=None):
     """Returns float array (n, 28, 28, 1) in the model's [-1, 1] range."""
-    return np.asarray(model(make_latent(n, seed), training=False))
+    return generate_from_latent(model, make_latent(n, seed))
+
+
+def generate_from_latent(model, latent_vectors):
+    """Run the Generator on explicit latent vectors."""
+    latent_vectors = np.asarray(latent_vectors, dtype="float32")
+    if latent_vectors.ndim != 2 or latent_vectors.shape[1] != LATENT_DIM:
+        raise ValueError(f"Expected latent vectors shaped (n, {LATENT_DIM}).")
+    return np.asarray(model(latent_vectors, training=False))
+
+
+def interpolation_latents(steps=9, seed_start=7, seed_end=42):
+    """Create a linear interpolation between two reproducible latent vectors."""
+    if steps < 2:
+        raise ValueError("Interpolation requires at least 2 steps.")
+    start = make_latent(1, seed_start)[0]
+    end = make_latent(1, seed_end)[0]
+    amounts = np.linspace(0.0, 1.0, steps, dtype="float32")[:, None]
+    return ((1.0 - amounts) * start + amounts * end).astype("float32")
+
+
+def generate_interpolation(model, steps=9, seed_start=7, seed_end=42):
+    """Generate images along a linear path between two latent vectors."""
+    latents = interpolation_latents(steps, seed_start, seed_end)
+    return generate_from_latent(model, latents)
 
 
 def to_uint8(images):
