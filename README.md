@@ -4,12 +4,19 @@ Streamlit app that generates new 28×28 handwritten digits with a trained DCGAN 
 Based on the reference implementation: `rohanmistry231/Deep-Learning-Projects`, Project 09 (follows the TensorFlow DCGAN tutorial).
 
 ## Architecture
+
+
 ```mermaid
 flowchart LR
-  Z[z ~ N(0,1), 100-d] --> G[Generator] --> I[28x28 image in -1..1] --> P[x*127.5+127.5] --> UI[Streamlit grid + PNG download]
-  R[Real MNIST] --> D[Discriminator]
-  I -. training only .-> D
+    Z["Random noise vector (100 values)"] --> G["Generator"]
+    G --> I["Generated 28 x 28 image (-1 to 1)"]
+    I --> P["Convert pixels to range 0-255"]
+    P --> UI["Streamlit grid and PNG download"]
+
+    R["Real MNIST images"] --> D["Discriminator"]
+    I -.->|"Used during GAN training"| D
 ```
+
 
 ## Run locally
 ```bash
